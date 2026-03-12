@@ -17,39 +17,39 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Check if any users exist on the server
-      const checkRes = await fetch("/api/auth/has-users");
-      const { hasUsers } = await checkRes.json();
+      // Check if any passkeys exist on the server
+      const credsRes = await fetch("/api/auth/credentials");
+      const { credentials } = await credsRes.json();
 
-      if (hasUsers) {
-        // Try sign in with existing passkey
-        const signedIn = await trySignIn();
-        if (signedIn) {
-          router.push("/");
-          return;
-        }
-        // User cancelled — don't auto-create, just stop
-        return;
+      if (credentials.length > 0) {
+        // Existing passkeys — authenticate with allowCredentials
+        // This makes iOS show Face ID directly instead of QR scanner
+        await signIn(credentials);
+      } else {
+        // No passkeys — create new account
+        await createAccount();
       }
 
-      // No users exist — go straight to account creation
-      await createAccount();
       router.push("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      const msg = err instanceof Error ? err.message : "Authentication failed";
+      // Don't show error if user just cancelled
+      if (!msg.includes("NotAllowed") && !msg.includes("AbortError")) {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  async function trySignIn(): Promise<boolean> {
+  async function signIn(allowCredentials: { id: string; transports?: string[] }[]) {
     const initRes = await fetch("/api/auth/authenticate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ step: "init" }),
+      body: JSON.stringify({ step: "init", allowCredentials }),
     });
     const { options } = await initRes.json();
-    if (!initRes.ok) return false;
+    if (!initRes.ok) throw new Error("Failed to start authentication");
 
     const credential = await startAuthentication({ optionsJSON: options });
 
@@ -58,10 +58,7 @@ export default function LoginPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ step: "verify", credential }),
     });
-    if (!verifyRes.ok) {
-      throw new Error("Passkey verification failed. Please try again.");
-    }
-    return true;
+    if (!verifyRes.ok) throw new Error("Passkey verification failed");
   }
 
   async function createAccount() {
@@ -73,7 +70,7 @@ export default function LoginPage() {
       body: JSON.stringify({ step: "init", username }),
     });
     const { options, userId } = await initRes.json();
-    if (!initRes.ok) throw new Error("Registration init failed");
+    if (!initRes.ok) throw new Error("Registration failed");
 
     const credential = await startRegistration({ optionsJSON: options });
 

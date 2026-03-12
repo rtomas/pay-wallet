@@ -118,10 +118,11 @@ export async function verifyRegResponse(userId: string, response: any) {
   return verification;
 }
 
-export async function generateAuthOptions() {
+export async function generateAuthOptions(allowCredentials?: { id: string; transports?: AuthenticatorTransportFuture[] }[]) {
   const options = await generateAuthenticationOptions({
     rpID,
     userVerification: "preferred",
+    allowCredentials,
   });
 
   await db.insert(webauthnChallenges).values({

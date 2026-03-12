@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
 
   if (body.step === "init") {
-    const options = await generateAuthOptions();
+    const options = await generateAuthOptions(body.allowCredentials);
     return NextResponse.json({ options });
   }
 
