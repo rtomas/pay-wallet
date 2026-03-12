@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { startRegistration, startAuthentication, platformAuthenticatorIsAvailable } from "@simplewebauthn/browser";
+import { useState } from "react";
+import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
@@ -11,13 +11,6 @@ export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string>("");
-
-  useEffect(() => {
-    platformAuthenticatorIsAvailable().then((available) => {
-      setDebugInfo((d) => d + `Platform: ${available}\n`);
-    });
-  }, []);
 
   async function handlePasskey() {
     setLoading(true);
@@ -30,7 +23,6 @@ export default function LoginPage() {
 
       if (credentials.length > 0) {
         // Existing passkeys — authenticate with allowCredentials
-        // This makes iOS show Face ID directly instead of QR scanner
         await signIn(credentials);
       } else {
         // No passkeys — create new account
@@ -79,8 +71,6 @@ export default function LoginPage() {
     const { options, userId } = await initRes.json();
     if (!initRes.ok) throw new Error("Registration failed");
 
-    alert(`RP: ${options.rp?.id}\nAuth: ${options.authenticatorSelection?.authenticatorAttachment}\nHints: ${JSON.stringify(options.hints)}`);
-
     const credential = await startRegistration({ optionsJSON: options });
 
     const verifyRes = await fetch("/api/auth/register", {
@@ -120,11 +110,6 @@ export default function LoginPage() {
           <p className="text-center text-sm text-[var(--destructive)]">{error}</p>
         )}
 
-        {debugInfo && (
-          <pre className="text-left text-xs text-[var(--muted-foreground)] whitespace-pre-wrap break-all">
-            {debugInfo}
-          </pre>
-        )}
       </Card>
     </div>
   );
