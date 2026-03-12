@@ -53,7 +53,6 @@ export default function LoginPage() {
       });
       return verifyRes.ok;
     } catch {
-      // User cancelled or no passkey available — fall through to registration
       return false;
     }
   }

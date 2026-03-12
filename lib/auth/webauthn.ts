@@ -10,8 +10,23 @@ import { passkeyCredentials, users, webauthnChallenges } from "@/db/schema";
 import { eq, and, gt } from "drizzle-orm";
 
 const rpName = process.env.WEBAUTHN_RP_NAME || "Pay Wallet";
-const rpID = process.env.WEBAUTHN_RP_ID || "localhost";
-const origin = process.env.WEBAUTHN_ORIGIN || "http://localhost:3000";
+
+function getRpID(): string {
+  if (process.env.WEBAUTHN_RP_ID) return process.env.WEBAUTHN_RP_ID;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (process.env.VERCEL_URL) return process.env.VERCEL_URL;
+  return "localhost";
+}
+
+function getOrigin(): string {
+  if (process.env.WEBAUTHN_ORIGIN) return process.env.WEBAUTHN_ORIGIN;
+  const rpID = getRpID();
+  if (rpID === "localhost") return "http://localhost:3000";
+  return `https://${rpID}`;
+}
+
+const rpID = getRpID();
+const origin = getOrigin();
 
 export async function generateRegOptions(username: string) {
   // Check if user exists
