@@ -18,15 +18,17 @@ export default function LoginPage() {
 
     try {
       // Try sign in first (existing passkey)
-      const signedIn = await trySignIn();
-      if (signedIn) {
+      const result = await trySignIn();
+      if (result === true) {
         router.push("/");
         return;
       }
 
-      // No existing passkey — create a new account
-      await createAccount();
-      router.push("/");
+      // Only create new account if no passkey exists at all
+      if (result === "no_passkey") {
+        await createAccount();
+        router.push("/");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
@@ -34,7 +36,7 @@ export default function LoginPage() {
     }
   }
 
-  async function trySignIn(): Promise<boolean> {
+  async function trySignIn(): Promise<boolean | "no_passkey"> {
     try {
       const initRes = await fetch("/api/auth/authenticate", {
         method: "POST",
@@ -42,7 +44,7 @@ export default function LoginPage() {
         body: JSON.stringify({ step: "init" }),
       });
       const { options } = await initRes.json();
-      if (!initRes.ok) return false;
+      if (!initRes.ok) return "no_passkey";
 
       const credential = await startAuthentication({ optionsJSON: options });
 
@@ -51,9 +53,20 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ step: "verify", credential }),
       });
-      return verifyRes.ok;
-    } catch {
-      return false;
+      if (!verifyRes.ok) {
+        // User selected a passkey but verification failed — don't create new account
+        throw new Error("Passkey verification failed. Please try again.");
+      }
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Only return "no_passkey" if the browser couldn't find any passkeys
+      // (user cancelled the picker or no credentials available)
+      if (msg.includes("NotAllowed") || msg.includes("AbortError") || msg.includes("No credentials")) {
+        return "no_passkey";
+      }
+      // Re-throw real errors (verification failed, network, etc.)
+      throw err;
     }
   }
 
