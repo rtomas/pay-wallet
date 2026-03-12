@@ -17,18 +17,24 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Try sign in first (existing passkey)
-      const result = await trySignIn();
-      if (result === true) {
-        router.push("/");
+      // Check if any users exist on the server
+      const checkRes = await fetch("/api/auth/has-users");
+      const { hasUsers } = await checkRes.json();
+
+      if (hasUsers) {
+        // Try sign in with existing passkey
+        const signedIn = await trySignIn();
+        if (signedIn) {
+          router.push("/");
+          return;
+        }
+        // User cancelled — don't auto-create, just stop
         return;
       }
 
-      // Only create new account if no passkey exists at all
-      if (result === "no_passkey") {
-        await createAccount();
-        router.push("/");
-      }
+      // No users exist — go straight to account creation
+      await createAccount();
+      router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
@@ -36,38 +42,26 @@ export default function LoginPage() {
     }
   }
 
-  async function trySignIn(): Promise<boolean | "no_passkey"> {
-    try {
-      const initRes = await fetch("/api/auth/authenticate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "init" }),
-      });
-      const { options } = await initRes.json();
-      if (!initRes.ok) return "no_passkey";
+  async function trySignIn(): Promise<boolean> {
+    const initRes = await fetch("/api/auth/authenticate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step: "init" }),
+    });
+    const { options } = await initRes.json();
+    if (!initRes.ok) return false;
 
-      const credential = await startAuthentication({ optionsJSON: options });
+    const credential = await startAuthentication({ optionsJSON: options });
 
-      const verifyRes = await fetch("/api/auth/authenticate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "verify", credential }),
-      });
-      if (!verifyRes.ok) {
-        // User selected a passkey but verification failed — don't create new account
-        throw new Error("Passkey verification failed. Please try again.");
-      }
-      return true;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Only return "no_passkey" if the browser couldn't find any passkeys
-      // (user cancelled the picker or no credentials available)
-      if (msg.includes("NotAllowed") || msg.includes("AbortError") || msg.includes("No credentials")) {
-        return "no_passkey";
-      }
-      // Re-throw real errors (verification failed, network, etc.)
-      throw err;
+    const verifyRes = await fetch("/api/auth/authenticate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step: "verify", credential }),
+    });
+    if (!verifyRes.ok) {
+      throw new Error("Passkey verification failed. Please try again.");
     }
+    return true;
   }
 
   async function createAccount() {
