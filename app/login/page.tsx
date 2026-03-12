@@ -22,8 +22,9 @@ export default function LoginPage() {
       const { credentials } = await credsRes.json();
 
       if (credentials.length > 0) {
-        // Existing passkeys — authenticate with allowCredentials
-        await signIn(credentials);
+        // Existing passkeys — authenticate without allowCredentials
+        // On custom domains, iOS can find the passkey by RP ID alone
+        await signIn();
       } else {
         // No passkeys — create new account
         await createAccount();
@@ -41,11 +42,11 @@ export default function LoginPage() {
     }
   }
 
-  async function signIn(allowCredentials: { id: string; transports?: string[] }[]) {
+  async function signIn() {
     const initRes = await fetch("/api/auth/authenticate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ step: "init", allowCredentials }),
+      body: JSON.stringify({ step: "init" }),
     });
     const { options } = await initRes.json();
     if (!initRes.ok) throw new Error("Failed to start authentication");
