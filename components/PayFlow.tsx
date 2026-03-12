@@ -1,59 +1,208 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Button } from "@/components/ui/button";
+import { useState, useCallback, useRef } from "react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useWallet } from "@/lib/hooks/useWallet";
 import { parsePaymentLink } from "@/lib/walletconnect/parseLink";
 import { QRScanner } from "@/components/QRScanner";
 import { Loader2 } from "lucide-react";
 
-type Step = "scan" | "options" | "confirm" | "done";
+type Step = "scan" | "collect" | "signing" | "done";
 
-interface PaymentOption {
-  chainId: string;
-  tokenAddress: string;
-  amount: string;
-  recipient: string;
+interface CollectField {
+  type: string;
+  id: string;
+  name: string;
+  required: boolean;
+}
+
+function decodeHexAction(hex: string) {
+  const json = Buffer.from(hex, "hex").toString("utf8");
+  return JSON.parse(json);
 }
 
 export function PayFlow() {
-  const { keys } = useWallet();
+  const { keys, evmAddress } = useWallet();
   const [step, setStep] = useState<Step>("scan");
-  const [paymentId, setPaymentId] = useState("");
-  const [options, setOptions] = useState<PaymentOption[]>([]);
-  const [selectedOption, setSelectedOption] = useState<PaymentOption | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
-  const handleScan = useCallback(async (data: string) => {
-    setError(null);
-    const parsed = parsePaymentLink(data);
-    if (!parsed) {
-      setError("Invalid payment QR code");
-      return;
-    }
+  // Collect data state
+  const [collectFields, setCollectFields] = useState<CollectField[]>([]);
+  const [collectValues, setCollectValues] = useState<Record<string, string>>({});
+  const pendingPayRef = useRef<{
+    paymentId: string;
+    optionId: string;
+    actions: any[];
+    collectData: any;
+  } | null>(null);
 
-    setPaymentId(parsed.paymentId);
+  const handleScan = useCallback(
+    async (data: string) => {
+      setError(null);
+      const parsed = parsePaymentLink(data);
+      if (!parsed) {
+        setError(`Invalid QR code: ${data}`);
+        return;
+      }
+
+      const paymentId = parsed.paymentId;
+      setLoading(true);
+      setStep("signing");
+
+      try {
+        const accounts: string[] = [];
+        if (evmAddress) {
+          accounts.push(
+            `eip155:1:${evmAddress}`,
+            `eip155:8453:${evmAddress}`,
+            `eip155:10:${evmAddress}`,
+            `eip155:137:${evmAddress}`,
+            `eip155:42161:${evmAddress}`
+          );
+        }
+
+        const optionsRes = await fetch("/api/pay/options", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentId, accounts }),
+        });
+        const optionsText = await optionsRes.text();
+        let optionsData: any;
+        try {
+          optionsData = JSON.parse(optionsText);
+        } catch {
+          throw new Error(`Invalid response: ${optionsText.slice(0, 200)}`);
+        }
+        if (!optionsRes.ok) throw new Error(optionsData.error || optionsText.slice(0, 200));
+
+        const option = optionsData.options?.[0];
+        if (!option) throw new Error("No payment options available");
+
+        // Decode actions from hex
+        const resolvedActions = option.actions.map((action: any) => {
+          if (action.type === "build" && action.data?.data) {
+            return decodeHexAction(action.data.data);
+          }
+          if (action.type === "walletRpc" && action.data) {
+            return typeof action.data === "string"
+              ? decodeHexAction(action.data)
+              : action.data;
+          }
+          return action;
+        });
+
+        // Check if collectData is required
+        if (option.collectData?.fields?.length) {
+          pendingPayRef.current = {
+            paymentId,
+            optionId: option.id,
+            actions: resolvedActions,
+            collectData: option.collectData,
+          };
+          setCollectFields(option.collectData.fields);
+          setCollectValues({});
+          setStep("collect");
+          setLoading(false);
+          return;
+        }
+
+        await signAndConfirm(paymentId, option.id, resolvedActions, null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Payment failed");
+        setStep("scan");
+        setLoading(false);
+      }
+    },
+    [evmAddress, keys]
+  );
+
+  async function signAndConfirm(
+    paymentId: string,
+    optionId: string,
+    actions: any[],
+    collectedData: Record<string, any> | null
+  ) {
+    setStep("signing");
     setLoading(true);
+    setError(null);
 
     try {
-      const res = await fetch("/api/pay/options", {
+      const { signTypedData } = await import("@/lib/wallet/evm");
+      const results: Array<{ type: "walletRpc"; data: string[] }> = [];
+
+      for (const action of actions) {
+        const paramsRaw = action.params;
+        if (!paramsRaw) {
+          throw new Error("Action missing params");
+        }
+        const params = typeof paramsRaw === "string" ? JSON.parse(paramsRaw) : paramsRaw;
+        const typedData = typeof params[1] === "string" ? JSON.parse(params[1]) : params[1];
+        const signature = await signTypedData(keys!.evmPrivateKey, typedData);
+        results.push({ type: "walletRpc", data: [signature] });
+      }
+
+      const confirmRes = await fetch("/api/pay/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId: parsed.paymentId }),
+        body: JSON.stringify({
+          paymentId,
+          optionId,
+          results,
+          collectedData,
+        }),
       });
-      const respData = await res.json();
-      if (!res.ok) throw new Error(respData.error);
-      setOptions(respData.options);
-      setStep("options");
+      const confirmData = await confirmRes.json();
+      if (!confirmRes.ok) throw new Error(confirmData.error);
+
+      let current = confirmData;
+      while (!current.isFinal) {
+        await new Promise((r) => setTimeout(r, current.pollInMs || 2000));
+        const pollRes = await fetch("/api/pay/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentId, optionId, results, collectedData }),
+        });
+        current = await pollRes.json();
+        if (!pollRes.ok) throw new Error(current.error);
+      }
+
+      setStatus(current.status);
+      setStep("done");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load options");
+      setError(err instanceof Error ? err.message : "Payment failed");
+      setStep("scan");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
+
+  async function handleCollectSubmit() {
+    if (!pendingPayRef.current) return;
+    const { paymentId, optionId, actions, collectData } = pendingPayRef.current;
+
+    // Add value to each field + append tosConfirmed field
+    const fields = collectData.fields.map((f: any) => ({
+      ...f,
+      value: collectValues[f.id] || "",
+    }));
+    fields.push({
+      type: "boolean",
+      id: "tosConfirmed",
+      name: "Terms of Service",
+      required: true,
+      value: "true",
+    });
+
+    const collectedData = {
+      ...collectData,
+      fields,
+    };
+    await signAndConfirm(paymentId, optionId, actions, collectedData);
+  }
 
   const handleScanError = useCallback((err: string) => {
     setError(err);
@@ -69,130 +218,66 @@ export function PayFlow() {
     );
   }
 
-  async function handleConfirm() {
-    if (!selectedOption) return;
-    setLoading(true);
+  function reset() {
+    setStep("scan");
+    setStatus(null);
     setError(null);
-
-    try {
-      const actionRes = await fetch("/api/pay/fetch-action", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paymentId,
-          chainId: selectedOption.chainId,
-          tokenAddress: selectedOption.tokenAddress,
-        }),
-      });
-      const actionData = await actionRes.json();
-      if (!actionRes.ok) throw new Error(actionData.error);
-
-      const { signAndSerializeEVMTx } = await import("@/lib/wallet/evm");
-      const chain = selectedOption.chainId.includes("8453") ? "base" : "ethereum";
-      const signedTx = await signAndSerializeEVMTx(
-        keys!.evmPrivateKey,
-        chain,
-        actionData.action.to as `0x${string}`,
-        actionData.action.data as `0x${string}`
-      );
-
-      const sendRes = await fetch("/api/wallet/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chain, signedTx }),
-      });
-      const sendData = await sendRes.json();
-      if (!sendRes.ok) throw new Error(sendData.error);
-
-      await fetch("/api/pay/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId, txHash: sendData.txHash }),
-      });
-
-      setTxHash(sendData.txHash);
-      setStep("done");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment failed");
-    } finally {
-      setLoading(false);
-    }
+    setCollectFields([]);
+    setCollectValues({});
+    pendingPayRef.current = null;
   }
 
   return (
     <Card className="space-y-4">
-      {step === "scan" && (
+      {step === "scan" && !loading && (
         <>
           <p className="text-sm text-[var(--muted-foreground)] text-center">
             Scan a WalletConnect Pay QR code
           </p>
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-[var(--muted-foreground)]" />
-            </div>
-          ) : (
-            <QRScanner onScan={handleScan} onError={handleScanError} />
-          )}
+          <QRScanner onScan={handleScan} onError={handleScanError} />
         </>
       )}
 
-      {step === "options" && (
+      {step === "collect" && (
         <>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Select payment option:
-          </p>
-          <div className="space-y-2">
-            {options.map((opt, i) => (
-              <button
-                key={i}
-                className={`w-full rounded-xl border p-4 text-left transition-colors ${
-                  selectedOption === opt
-                    ? "border-[var(--primary)] bg-[var(--primary)]/10"
-                    : "border-[var(--border)] hover:border-[var(--muted-foreground)]"
-                }`}
-                onClick={() => setSelectedOption(opt)}
-              >
-                <p className="font-medium">Chain: {opt.chainId}</p>
-                <p className="text-sm text-[var(--muted-foreground)]">
-                  Amount: {opt.amount}
-                </p>
-              </button>
+          <p className="text-sm font-medium">Verification required</p>
+          <div className="space-y-3">
+            {collectFields.map((field) => (
+              <div key={field.id}>
+                <label className="text-xs text-[var(--muted-foreground)]">
+                  {field.name} {field.required && "*"}
+                </label>
+                <Input
+                  type={field.type === "date" ? "date" : "text"}
+                  value={collectValues[field.id] || ""}
+                  onChange={(e) =>
+                    setCollectValues((v) => ({ ...v, [field.id]: e.target.value }))
+                  }
+                />
+              </div>
             ))}
           </div>
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handleConfirm}
-            disabled={!selectedOption || loading}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              "Confirm & Pay"
-            )}
+          <Button className="w-full" size="lg" onClick={handleCollectSubmit}>
+            Continue
           </Button>
         </>
       )}
 
+      {step === "signing" && (
+        <div className="flex flex-col items-center py-8 space-y-3">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--muted-foreground)]" />
+          <p className="text-sm text-[var(--muted-foreground)]">
+            Processing payment...
+          </p>
+        </div>
+      )}
+
       {step === "done" && (
         <div className="text-center space-y-2">
-          <p className="text-lg font-medium text-green-400">Payment Complete!</p>
-          {txHash && (
-            <p className="text-sm text-[var(--muted-foreground)]">
-              TX: {txHash.slice(0, 20)}...
-            </p>
-          )}
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setStep("scan");
-              setTxHash(null);
-              setSelectedOption(null);
-            }}
-          >
+          <p className="text-lg font-medium text-green-400">
+            {status === "succeeded" ? "Payment Complete!" : `Payment ${status}`}
+          </p>
+          <Button variant="secondary" onClick={reset}>
             New Payment
           </Button>
         </div>

@@ -96,6 +96,17 @@ export async function signAndSerializeEVMTx(
   return serialized;
 }
 
+export async function signTypedData(
+  privateKey: Uint8Array,
+  typedData: Record<string, unknown>
+): Promise<Hex> {
+  const account = privateKeyToAccount(
+    `0x${Buffer.from(privateKey).toString("hex")}` as Hex
+  );
+
+  return account.signTypedData(typedData as any);
+}
+
 export function getEVMAddress(privateKey: Uint8Array): Address {
   const account = privateKeyToAccount(
     `0x${Buffer.from(privateKey).toString("hex")}` as Hex

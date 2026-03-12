@@ -1,71 +1,127 @@
-const WC_PAY_API = "https://pay.walletconnect.com/api/v1";
+const WC_PAY_API = "https://api.pay.walletconnect.org/v1/gateway";
 
-interface PaymentOption {
-  chainId: string;
-  tokenAddress: string;
-  amount: string;
-  recipient: string;
+function headers() {
+  return {
+    "Api-Key": process.env.WALLETCONNECT_API_KEY || "",
+    "Content-Type": "application/json",
+  };
 }
 
-interface PaymentAction {
-  type: string;
-  chainId: string;
-  to: string;
-  data: string;
-  value: string;
+export interface PaymentOption {
+  id: string;
+  amount: {
+    value: string;
+    unit: string;
+    display: {
+      amount: string;
+      assetSymbol: string;
+      networkName: string;
+    };
+  };
+  account: string;
+  etaS: number;
+  actions: Array<{
+    type: "walletRpc" | "build";
+    data?: {
+      chainId: string;
+      method: string;
+      params: string;
+    };
+  }>;
+  collectData: { url: string } | null;
 }
 
-export async function getPaymentOptions(paymentId: string): Promise<PaymentOption[]> {
-  const res = await fetch(`${WC_PAY_API}/payments/${paymentId}/options`, {
-    headers: {
-      "x-project-id": process.env.WALLETCONNECT_PROJECT_ID || "",
-    },
-  });
+export interface PaymentInfo {
+  merchant: { name: string };
+  amount: { value: string; unit: string };
+  expiresAt: string;
+}
 
+export interface PaymentOptionsResponse {
+  paymentId: string;
+  options: PaymentOption[];
+  info: PaymentInfo;
+}
+
+async function parseResponse<T>(res: Response, label: string): Promise<T> {
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Failed to get payment options: ${res.statusText}`);
+    throw new Error(`${label}: ${text || res.statusText}`);
   }
-
-  const data = await res.json();
-  return data.options || [];
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: invalid JSON response: ${text.slice(0, 200)}`);
+  }
 }
 
-export async function fetchPaymentAction(
+export async function getPaymentOptions(
   paymentId: string,
-  option: { chainId: string; tokenAddress: string }
-): Promise<PaymentAction> {
-  const res = await fetch(`${WC_PAY_API}/payments/${paymentId}/action`, {
+  accounts: string[]
+): Promise<PaymentOptionsResponse> {
+  const res = await fetch(`${WC_PAY_API}/payment/${paymentId}/options`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-project-id": process.env.WALLETCONNECT_PROJECT_ID || "",
-    },
-    body: JSON.stringify(option),
+    headers: headers(),
+    body: JSON.stringify({ accounts, includePaymentInfo: true }),
   });
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch payment action: ${res.statusText}`);
+  return parseResponse(res, "Failed to get payment options");
+}
+
+export async function fetchAction(
+  paymentId: string,
+  optionId: string,
+  actionData?: unknown
+): Promise<{ type: "walletRpc"; data: { chainId: string; method: string; params: string } }> {
+  const body: Record<string, unknown> = { optionId };
+  if (actionData !== undefined) {
+    body.data = String(actionData);
   }
 
-  return res.json();
+  const res = await fetch(`${WC_PAY_API}/payment/${paymentId}/fetch`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+
+  return parseResponse(res, "Failed to fetch action");
+}
+
+export interface ConfirmResponse {
+  status: "requires_action" | "processing" | "succeeded" | "failed" | "expired";
+  isFinal: boolean;
+  pollInMs?: number;
 }
 
 export async function confirmPayment(
   paymentId: string,
-  txHash: string
-): Promise<{ status: string }> {
-  const res = await fetch(`${WC_PAY_API}/payments/${paymentId}/confirm`, {
+  optionId: string,
+  results: Array<{ type: "walletRpc"; data: string[] }>,
+  collectedData?: unknown
+): Promise<ConfirmResponse> {
+  const res = await fetch(`${WC_PAY_API}/payment/${paymentId}/confirm`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-project-id": process.env.WALLETCONNECT_PROJECT_ID || "",
-    },
-    body: JSON.stringify({ txHash }),
+    headers: headers(),
+    body: JSON.stringify({ optionId, results, collectedData: collectedData ?? null }),
   });
 
-  if (!res.ok) {
-    throw new Error(`Failed to confirm payment: ${res.statusText}`);
-  }
+  return parseResponse(res, "Failed to confirm payment");
+}
 
-  return res.json();
+export async function pollConfirm(
+  paymentId: string,
+  optionId: string,
+  results: Array<{ type: "walletRpc"; data: string[] }>,
+  maxPollMs = 30000
+): Promise<ConfirmResponse> {
+  const res = await fetch(
+    `${WC_PAY_API}/payment/${paymentId}/confirm?maxPollMs=${maxPollMs}`,
+    {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ optionId, results, collectedData: null }),
+    }
+  );
+
+  return parseResponse(res, "Failed to poll payment");
 }

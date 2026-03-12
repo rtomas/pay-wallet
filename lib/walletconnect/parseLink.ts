@@ -3,25 +3,39 @@ export interface ParsedPaymentLink {
   raw: string;
 }
 
-const WC_PAY_REGEX = /wc:pay\?id=([a-zA-Z0-9_-]+)/;
-const WC_PAY_URL_REGEX = /pay\.walletconnect\.com\/([a-zA-Z0-9_-]+)/;
-
 export function parsePaymentLink(input: string): ParsedPaymentLink | null {
-  // Try WC deep link format
-  const wcMatch = input.match(WC_PAY_REGEX);
+  const trimmed = input.trim();
+
+  // Try to parse as URL first
+  try {
+    const url = new URL(trimmed);
+
+    if (url.hostname.includes("walletconnect")) {
+      const pid = url.searchParams.get("pid");
+      if (pid) return { paymentId: pid, raw: trimmed };
+
+      const id = url.searchParams.get("id") || url.searchParams.get("paymentId");
+      if (id) return { paymentId: id, raw: trimmed };
+
+      const segments = url.pathname.split("/").filter(Boolean);
+      const lastSegment = segments[segments.length - 1];
+      if (lastSegment && lastSegment.length >= 5) {
+        return { paymentId: lastSegment, raw: trimmed };
+      }
+    }
+  } catch {
+    // Not a URL, try other formats
+  }
+
+  // WC deep link: wc:pay?id=...
+  const wcMatch = trimmed.match(/wc:pay\?id=([a-zA-Z0-9_-]+)/);
   if (wcMatch) {
-    return { paymentId: wcMatch[1], raw: input };
+    return { paymentId: wcMatch[1], raw: trimmed };
   }
 
-  // Try URL format
-  const urlMatch = input.match(WC_PAY_URL_REGEX);
-  if (urlMatch) {
-    return { paymentId: urlMatch[1], raw: input };
-  }
-
-  // Try raw payment ID (alphanumeric)
-  if (/^[a-zA-Z0-9_-]{10,}$/.test(input.trim())) {
-    return { paymentId: input.trim(), raw: input };
+  // Raw payment ID (alphanumeric, at least 10 chars)
+  if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmed)) {
+    return { paymentId: trimmed, raw: trimmed };
   }
 
   return null;

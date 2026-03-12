@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { useEffect, useRef, useCallback } from "react";
 
 interface QRScannerProps {
   onScan: (data: string) => void;
@@ -9,41 +8,111 @@ interface QRScannerProps {
 }
 
 export function QRScanner({ onScan, onError }: QRScannerProps) {
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanningRef = useRef(true);
+  const onScanRef = useRef(onScan);
+  const onErrorRef = useRef(onError);
+  onScanRef.current = onScan;
+  onErrorRef.current = onError;
+
+  const stopStream = useCallback(() => {
+    scanningRef.current = false;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
 
   useEffect(() => {
-    const scannerId = "qr-scanner-" + Math.random().toString(36).slice(2);
+    scanningRef.current = true;
+    let animationId: number;
 
-    if (!containerRef.current) return;
-    containerRef.current.id = scannerId;
+    async function start() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
 
-    const scanner = new Html5Qrcode(scannerId);
-    scannerRef.current = scanner;
+        if (!scanningRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
 
-    scanner
-      .start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          onScan(decodedText);
-          scanner.stop().catch(() => {});
-        },
-        () => {}
-      )
-      .catch((err) => {
-        onError?.(typeof err === "string" ? err : "Camera access denied");
-      });
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (!video) return;
+
+        video.srcObject = stream;
+        await new Promise<void>((resolve) => {
+          video.onloadedmetadata = () => resolve();
+        });
+        if (!scanningRef.current) return;
+        await video.play();
+
+        // Use BarcodeDetector if available, otherwise fall back to jsQR
+        if ("BarcodeDetector" in window) {
+          const detector = new (window as any).BarcodeDetector({
+            formats: ["qr_code"],
+          });
+
+          const scan = async () => {
+            if (!scanningRef.current) return;
+            try {
+              const barcodes = await detector.detect(video);
+              if (barcodes.length > 0) {
+                stopStream();
+                onScanRef.current(barcodes[0].rawValue);
+                return;
+              }
+            } catch {}
+            animationId = requestAnimationFrame(scan);
+          };
+          animationId = requestAnimationFrame(scan);
+        } else {
+          // Fallback: dynamically import jsQR
+          const { default: jsQR } = await import("jsqr");
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d")!;
+
+          const scan = () => {
+            if (!scanningRef.current) return;
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = jsQR(imageData.data, canvas.width, canvas.height);
+              if (code) {
+                stopStream();
+                onScanRef.current(code.data);
+                return;
+              }
+            }
+            animationId = requestAnimationFrame(scan);
+          };
+          animationId = requestAnimationFrame(scan);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        onErrorRef.current?.(msg);
+      }
+    }
+
+    start();
 
     return () => {
-      scanner.stop().catch(() => {});
+      scanningRef.current = false;
+      cancelAnimationFrame(animationId);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     };
-  }, [onScan, onError]);
+  }, [stopStream]);
 
   return (
-    <div
-      ref={containerRef}
-      className="overflow-hidden rounded-xl"
+    <video
+      ref={videoRef}
+      className="w-full rounded-xl"
+      playsInline
+      muted
     />
   );
 }
