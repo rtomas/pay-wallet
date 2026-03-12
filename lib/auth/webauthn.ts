@@ -40,8 +40,9 @@ export async function generateRegOptions(username: string) {
         : undefined,
     })),
     authenticatorSelection: {
-      residentKey: "preferred",
-      userVerification: "preferred",
+      authenticatorAttachment: "platform",
+      residentKey: "required",
+      userVerification: "required",
     },
   });
 
