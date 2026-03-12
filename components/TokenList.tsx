@@ -29,11 +29,13 @@ export function TokenList() {
     );
   }
 
-  if (balances.length === 0) {
+  const nonZero = balances.filter((b) => parseFloat(b.balance) > 0);
+
+  if (nonZero.length === 0) {
     return (
       <Card>
         <p className="text-center text-sm text-[var(--muted-foreground)]">
-          No balances found. Unlock your wallet to view balances.
+          No stablecoins in the wallet
         </p>
       </Card>
     );
@@ -41,7 +43,7 @@ export function TokenList() {
 
   return (
     <Card className="divide-y divide-[var(--border)] p-0">
-      {balances.map((b) => (
+      {nonZero.map((b) => (
         <div
           key={`${b.chain}-${b.symbol}`}
           className="flex items-center justify-between px-6 py-4"

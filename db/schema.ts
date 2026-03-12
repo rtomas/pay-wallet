@@ -21,6 +21,17 @@ export const passkeyCredentials = pgTable(
   (table) => [uniqueIndex("passkey_user_idx").on(table.userId)]
 );
 
+export const encryptedWallets = pgTable("encrypted_wallets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+  iv: text("iv").notNull(),
+  ciphertext: text("ciphertext").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const webauthnChallenges = pgTable("webauthn_challenges", {
   id: uuid("id").defaultRandom().primaryKey(),
   challenge: text("challenge").notNull(),

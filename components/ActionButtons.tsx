@@ -2,27 +2,34 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowDownLeft, ArrowUpRight, CreditCard } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 
 export function ActionButtons() {
   return (
-    <div className="flex gap-3">
-      <Link href="/receive" className="flex-1">
-        <Button variant="secondary" className="w-full gap-2" size="lg">
-          <ArrowDownLeft className="h-4 w-4" />
-          Receive
-        </Button>
-      </Link>
-      <Link href="/send" className="flex-1">
-        <Button variant="secondary" className="w-full gap-2" size="lg">
-          <ArrowUpRight className="h-4 w-4" />
-          Send
-        </Button>
-      </Link>
-      <Link href="/pay" className="flex-1">
-        <Button className="w-full gap-2" size="lg">
-          <CreditCard className="h-4 w-4" />
-          Pay
+    <div className="space-y-3">
+      <div className="flex gap-3">
+        <Link href="/receive" className="flex-1">
+          <Button variant="secondary" className="w-full gap-2" size="lg">
+            <ArrowDownLeft className="h-4 w-4" />
+            Receive
+          </Button>
+        </Link>
+        <Link href="/send" className="flex-1">
+          <Button variant="secondary" className="w-full gap-2" size="lg">
+            <ArrowUpRight className="h-4 w-4" />
+            Send
+          </Button>
+        </Link>
+      </div>
+      <Link href="/pay">
+        <Button className="w-full" size="lg">
+          <svg width="97" height="30" viewBox="0 0 97 30" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-5 w-auto">
+            <path d="M44.418 23.6988V0.0433501H54.9417C59.4184 0.0433501 62.6591 2.9158 62.6591 7.57931C62.6591 12.1752 59.4184 15.0815 54.9417 15.0815H48.4604V23.6988H44.418ZM48.4604 11.7021H54.2401C56.8794 11.7021 58.483 10.08 58.483 7.57931C58.483 5.011 56.8794 3.42271 54.2401 3.42271H48.4604V11.7021Z" fill="currentColor"/>
+            <path d="M68.7783 24.1381C65.4709 24.1381 63.3327 22.1781 63.3327 19.2043C63.3327 15.2167 66.7404 14.2704 69.5801 13.7973L72.8207 13.3242C74.0569 13.1215 74.3576 12.4794 74.3576 11.7021C74.3576 10.3166 73.4221 9.2014 71.3508 9.2014C69.3463 9.2014 68.0433 10.1476 67.8095 12.0063H63.9341C64.4018 8.22139 67.3751 6.22757 71.3842 6.22757C75.9277 6.22757 78.1995 8.42415 78.1995 12.547V19.8464C78.1995 20.3195 78.5336 20.6236 79.0013 20.6236H79.9034V23.6988H77.4311C75.7273 23.6988 74.6582 22.854 74.6582 21.536V21.1643C73.1882 23.3271 70.9833 24.1381 68.7783 24.1381ZM67.2749 18.7988C67.2749 20.3195 68.3774 21.1643 70.0478 21.1643C72.7205 21.1643 74.3576 18.9339 74.3576 16.1291V15.2167C73.8564 15.487 73.3887 15.5884 72.8207 15.7236L70.3151 16.1629C68.2104 16.5346 67.2749 17.3456 67.2749 18.7988Z" fill="currentColor"/>
+            <path d="M80.9847 29.3086V26.3009H84.1251C85.094 26.3009 85.5951 26.0982 85.9626 25.1858L86.6308 23.3609L79.7486 6.66689H83.8244L88.4682 18.596L92.7111 6.66689H96.7536L89.27 26.4361C88.3346 28.903 86.8312 29.3086 84.8601 29.3086H80.9847Z" fill="currentColor"/>
+            <path d="M28.001 9.09766L31.3634 5.72206C23.764 -1.90735 14.3213 -1.90735 6.72194 5.72206L10.0843 9.09766C15.8639 3.29523 22.2253 3.29523 28.0049 9.09766H28.001Z" fill="currentColor"/>
+            <path d="M26.883 16.9626L19.0414 9.09015L11.1999 16.9626L3.35842 9.09015L0 12.4618L11.1999 23.7099L19.0414 15.8374L26.883 23.7099L38.0829 12.4618L34.7245 9.09015L26.883 16.9626Z" fill="currentColor"/>
+          </svg>
         </Button>
       </Link>
     </div>

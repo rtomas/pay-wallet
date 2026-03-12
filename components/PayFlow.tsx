@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useWallet } from "@/lib/hooks/useWallet";
 import { parsePaymentLink } from "@/lib/walletconnect/parseLink";
+import { QRScanner } from "@/components/QRScanner";
 import { Loader2 } from "lucide-react";
 
-type Step = "input" | "options" | "confirm" | "done";
+type Step = "scan" | "options" | "confirm" | "done";
 
 interface PaymentOption {
   chainId: string;
@@ -19,8 +19,7 @@ interface PaymentOption {
 
 export function PayFlow() {
   const { keys } = useWallet();
-  const [step, setStep] = useState<Step>("input");
-  const [link, setLink] = useState("");
+  const [step, setStep] = useState<Step>("scan");
   const [paymentId, setPaymentId] = useState("");
   const [options, setOptions] = useState<PaymentOption[]>([]);
   const [selectedOption, setSelectedOption] = useState<PaymentOption | null>(null);
@@ -28,21 +27,11 @@ export function PayFlow() {
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  if (!keys) {
-    return (
-      <Card>
-        <p className="text-center text-[var(--muted-foreground)]">
-          Unlock your wallet to use Pay.
-        </p>
-      </Card>
-    );
-  }
-
-  async function handleParseLink() {
+  const handleScan = useCallback(async (data: string) => {
     setError(null);
-    const parsed = parsePaymentLink(link);
+    const parsed = parsePaymentLink(data);
     if (!parsed) {
-      setError("Invalid payment link");
+      setError("Invalid payment QR code");
       return;
     }
 
@@ -55,15 +44,29 @@ export function PayFlow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paymentId: parsed.paymentId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setOptions(data.options);
+      const respData = await res.json();
+      if (!res.ok) throw new Error(respData.error);
+      setOptions(respData.options);
       setStep("options");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load options");
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const handleScanError = useCallback((err: string) => {
+    setError(err);
+  }, []);
+
+  if (!keys) {
+    return (
+      <Card>
+        <p className="text-center text-[var(--muted-foreground)]">
+          Unlock your wallet to use Pay.
+        </p>
+      </Card>
+    );
   }
 
   async function handleConfirm() {
@@ -72,7 +75,6 @@ export function PayFlow() {
     setError(null);
 
     try {
-      // Fetch action
       const actionRes = await fetch("/api/pay/fetch-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,7 +87,6 @@ export function PayFlow() {
       const actionData = await actionRes.json();
       if (!actionRes.ok) throw new Error(actionData.error);
 
-      // Sign and send transaction
       const { signAndSerializeEVMTx } = await import("@/lib/wallet/evm");
       const chain = selectedOption.chainId.includes("8453") ? "base" : "ethereum";
       const signedTx = await signAndSerializeEVMTx(
@@ -103,7 +104,6 @@ export function PayFlow() {
       const sendData = await sendRes.json();
       if (!sendRes.ok) throw new Error(sendData.error);
 
-      // Confirm payment
       await fetch("/api/pay/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,30 +121,18 @@ export function PayFlow() {
 
   return (
     <Card className="space-y-4">
-      {step === "input" && (
+      {step === "scan" && (
         <>
-          <div className="space-y-2">
-            <label className="text-sm text-[var(--muted-foreground)]">
-              Payment Link or ID
-            </label>
-            <Input
-              placeholder="Paste WalletConnect Pay link..."
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-            />
-          </div>
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handleParseLink}
-            disabled={!link || loading}
-          >
-            {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              "Continue"
-            )}
-          </Button>
+          <p className="text-sm text-[var(--muted-foreground)] text-center">
+            Scan a WalletConnect Pay QR code
+          </p>
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-[var(--muted-foreground)]" />
+            </div>
+          ) : (
+            <QRScanner onScan={handleScan} onError={handleScanError} />
+          )}
         </>
       )}
 
@@ -200,8 +188,7 @@ export function PayFlow() {
           <Button
             variant="secondary"
             onClick={() => {
-              setStep("input");
-              setLink("");
+              setStep("scan");
               setTxHash(null);
               setSelectedOption(null);
             }}

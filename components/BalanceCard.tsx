@@ -21,9 +21,6 @@ export function BalanceCard() {
           `$${total}`
         )}
       </p>
-      <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-        USDC + USDT across all chains
-      </p>
     </Card>
   );
 }

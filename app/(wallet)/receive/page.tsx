@@ -11,7 +11,7 @@ import Link from "next/link";
 
 export default function ReceivePage() {
   const { evmAddress, solanaAddress, isUnlocked } = useWallet();
-  const [tab, setTab] = useState("ethereum");
+  const [tab, setTab] = useState("evm");
   const [copied, setCopied] = useState(false);
 
   if (!isUnlocked) {
@@ -52,18 +52,17 @@ export default function ReceivePage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="w-full">
-          <TabsTrigger value="ethereum" className="flex-1">Ethereum</TabsTrigger>
-          <TabsTrigger value="base" className="flex-1">Base</TabsTrigger>
+          <TabsTrigger value="evm" className="flex-1">Ethereum / Base</TabsTrigger>
           <TabsTrigger value="solana" className="flex-1">Solana</TabsTrigger>
         </TabsList>
 
-        {["ethereum", "base", "solana"].map((chain) => (
+        {["evm", "solana"].map((chain) => (
           <TabsContent key={chain} value={chain}>
             <Card className="flex flex-col items-center space-y-4">
               {address && <QRCode value={address} size={200} />}
               <div className="w-full">
                 <p className="text-xs text-[var(--muted-foreground)] text-center mb-1">
-                  {chain === "solana" ? "Solana" : "EVM"} Address
+                  {chain === "solana" ? "Solana" : "Ethereum / Base"} Address
                 </p>
                 <p className="break-all rounded-lg bg-[var(--secondary)] p-3 text-xs font-mono text-center">
                   {address}
