@@ -79,7 +79,7 @@ export default function LoginPage() {
     const { options, userId } = await initRes.json();
     if (!initRes.ok) throw new Error("Registration failed");
 
-    setDebugInfo((d) => d + `RP: ${options.rp?.id}\nAuth: ${options.authenticatorSelection?.authenticatorAttachment}\nHints: ${JSON.stringify(options.hints)}\n`);
+    alert(`RP: ${options.rp?.id}\nAuth: ${options.authenticatorSelection?.authenticatorAttachment}\nHints: ${JSON.stringify(options.hints)}`);
 
     const credential = await startRegistration({ optionsJSON: options });
 
