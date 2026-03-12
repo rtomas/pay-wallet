@@ -7,7 +7,7 @@ import {
 type AuthenticatorTransportFuture = 'ble' | 'cable' | 'hybrid' | 'internal' | 'nfc' | 'smart-card' | 'usb';
 import { db } from "@/db";
 import { passkeyCredentials, users, webauthnChallenges } from "@/db/schema";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, desc } from "drizzle-orm";
 
 const rpName = process.env.WEBAUTHN_RP_NAME || "Pay Wallet";
 
@@ -83,7 +83,7 @@ export async function verifyRegResponse(userId: string, response: any) {
         gt(webauthnChallenges.expiresAt, new Date())
       )
     )
-    .orderBy(webauthnChallenges.createdAt)
+    .orderBy(desc(webauthnChallenges.createdAt))
     .limit(1);
 
   if (!challengeRecord) {
@@ -119,6 +119,10 @@ export async function verifyRegResponse(userId: string, response: any) {
 }
 
 export async function generateAuthOptions(allowCredentials?: { id: string; transports?: AuthenticatorTransportFuture[] }[]) {
+  // Clean up expired challenges
+  const { lte } = await import("drizzle-orm");
+  await db.delete(webauthnChallenges).where(lte(webauthnChallenges.expiresAt, new Date()));
+
   const options = await generateAuthenticationOptions({
     rpID,
     userVerification: "preferred",
@@ -147,12 +151,12 @@ export async function verifyAuthResponse(response: any) {
     throw new Error("Credential not found");
   }
 
-  // Find matching challenge
+  // Find most recent non-expired challenge
   const [challengeRecord] = await db
     .select()
     .from(webauthnChallenges)
     .where(gt(webauthnChallenges.expiresAt, new Date()))
-    .orderBy(webauthnChallenges.createdAt)
+    .orderBy(desc(webauthnChallenges.createdAt))
     .limit(1);
 
   if (!challengeRecord) {
